@@ -13,7 +13,7 @@ import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianG
 import { DEFAULT_USER, loadUser, saveUser, unlockModule as unlockModuleFn, removeModule as removeModuleFn } from "@/modules/user";
 import { ALL_DECKS, flattenCards } from "@/modules/decks";
 import { computeAchievements } from "@/modules/achievements/compute";
-import { ACH_DEFS } from "@/modules/achievements/defs";
+import { ACH_DEFS } from "@/modules/achievements/defs.jsx";
 import { srsUpdateHelper, fuzzyCorrect } from "@/state/srs";
 import { clamp, levelFromXP } from "@/state/profile";
 

@@ -5,146 +5,32 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Crown, Flame, Sparkles, Trophy, Languages, RotateCcw, BookOpenText, PenSquare, Swords, Leaf, Star, ListChecks, BookOpen, Wand2 } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Crown, Flame, Sparkles, Trophy, RotateCcw, BookOpenText, PenSquare, Swords, Leaf, Star, ListChecks, BookOpen, Wand2 } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
+// ---- modules (new) ----
+import { DEFAULT_USER, loadUser, saveUser, unlockModule as unlockModuleFn, removeModule as removeModuleFn } from "@/modules/user";
+import { ALL_DECKS, flattenCards } from "@/modules/decks";
+import { computeAchievements } from "@/modules/achievements/compute";
+import { ACH_DEFS } from "@/modules/achievements/defs";
+import { srsUpdateHelper, fuzzyCorrect } from "@/state/srs";
+import { clamp, levelFromXP } from "@/state/profile";
+
 // ------------------------------------------------------
-// Baltic Breeze v0.3 — Module-ready structure, no coins, Settings panel
+// Baltic Breeze v0.3 — Modular imports, no coins, Settings panel
 // ------------------------------------------------------
 
 const LSK = {
-  PROFILE: "bb_profile_v2", // bump for coins removal
+  PROFILE: "bb_profile_v2",
   CARDS: "bb_cards_v2",
   HISTORY: "bb_history_v1",
-  SETTINGS: "bb_settings_v3", // moved packs out
-  USER: "bb_user_v1", // new: user module placeholder
+  SETTINGS: "bb_settings_v3",
+  USER: "bb_user_v1",
 };
 
 const todayKey = () => new Date().toISOString().slice(0, 10);
-const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
-
-// ---------- Minimal "modules" (inline for now; will split into files later) ----------
-// User module
-const DEFAULT_USER = { id: "anon", displayName: "Guest", unlocked: ["core-a1", "food-a1"] };
-
-// Decks registry (each will become its own module file later)
-const DECKS = [
-  {
-    id: "core-a1",
-    name: "Core A1",
-    cards: [
-      { id: "1", lt: "Labas", en: "Hello", ru: "Привет", topic: "greetings" },
-      { id: "2", lt: "Ačiū", en: "Thank you", ru: "Спасибо", topic: "greetings" },
-      { id: "3", lt: "Prašom", en: "Please / You're welcome", ru: "Пожалуйста", topic: "greetings" },
-      { id: "4", lt: "Atsiprašau", en: "Sorry / Excuse me", ru: "Извините", topic: "greetings" },
-      { id: "5", lt: "Taip", en: "Yes", ru: "Да", topic: "core" },
-      { id: "6", lt: "Ne", en: "No", ru: "Нет", topic: "core" },
-      { id: "7", lt: "Vanduo", en: "Water", ru: "Вода", topic: "food" },
-      { id: "8", lt: "Kava", en: "Coffee", ru: "Кофе", topic: "food" },
-      { id: "9", lt: "Aš esu", en: "I am", ru: "Я", topic: "core" },
-      { id: "10", lt: "Tu esi", en: "You are", ru: "Ты", topic: "core" },
-      { id: "11", lt: "Kur tualetas?", en: "Where is the toilet?", ru: "Где туалет?", topic: "travel" },
-      { id: "12", lt: "Kiek tai kainuoja?", en: "How much is it?", ru: "Сколько стоит?", topic: "shopping" },
-      { id: "13", lt: "Aš gyvenu Vilniuje", en: "I live in Vilnius", ru: "Я живу в Вильнюсе", topic: "life" },
-      { id: "14", lt: "Vienas / viena", en: "One (m/f)", ru: "Один / одна", topic: "numbers" },
-      { id: "15", lt: "Du / dvi", en: "Two (m/f)", ru: "Два / две", topic: "numbers" },
-      { id: "16", lt: "Trys", en: "Three", ru: "Три", topic: "numbers" },
-      { id: "17", lt: "Aš noriu", en: "I want", ru: "Я хочу", topic: "core" },
-      { id: "18", lt: "Aš suprantu", en: "I understand", ru: "Я понимаю", topic: "core" },
-      { id: "19", lt: "Nesuprantu", en: "I don't understand", ru: "Я не понимаю", topic: "core" },
-      { id: "20", lt: "Lietuvių kalba", en: "Lithuanian language", ru: "Литовский язык", topic: "meta" },
-    ],
-  },
-  {
-    id: "food-a1",
-    name: "Food & Café",
-    cards: [
-      { id: "21", lt: "Arbata", en: "Tea", ru: "Чай", topic: "food" },
-      { id: "22", lt: "Pienas", en: "Milk", ru: "Молоко", topic: "food" },
-      { id: "23", lt: "Duona", en: "Bread", ru: "Хлеб", topic: "food" },
-      { id: "24", lt: "Sviestas", en: "Butter", ru: "Масло", topic: "food" },
-      { id: "25", lt: "Sąskaita, prašau", en: "The bill, please", ru: "Счёт, пожалуйста", topic: "cafe" },
-    ],
-  },
-  {
-    id: "travel-a1",
-    name: "Travel & City",
-    cards: [
-      { id: "26", lt: "Stotis", en: "Station", ru: "Вокзал", topic: "travel" },
-      { id: "27", lt: "Stotelė", en: "(Bus) stop", ru: "Остановка", topic: "travel" },
-      { id: "28", lt: "Bilietas", en: "Ticket", ru: "Билет", topic: "travel" },
-      { id: "29", lt: "Išėjimas", en: "Exit", ru: "Выход", topic: "travel" },
-      { id: "30", lt: "Įėjimas", en: "Entrance", ru: "Вход", topic: "travel" },
-    ],
-  },
-  {
-    id: "time-a1",
-    name: "Time & Days",
-    cards: [
-      { id: "31", lt: "Šiandien", en: "Today", ru: "Сегодня", topic: "time" },
-      { id: "32", lt: "Rytoj", en: "Tomorrow", ru: "Завтра", topic: "time" },
-      { id: "33", lt: "Vakar", en: "Yesterday", ru: "Вчера", topic: "time" },
-      { id: "34", lt: "Diena", en: "Day", ru: "День", topic: "time" },
-      { id: "35", lt: "Naktis", en: "Night", ru: "Ночь", topic: "time" },
-    ],
-  },
-  {
-    id: "family-a1",
-    name: "Family & People",
-    cards: [
-      { id: "36", lt: "Mama", en: "Mother", ru: "Мама", topic: "family" },
-      { id: "37", lt: "Tėtis", en: "Father", ru: "Папа", topic: "family" },
-      { id: "38", lt: "Sesuo", en: "Sister", ru: "Сестра", topic: "family" },
-      { id: "39", lt: "Brolis", en: "Brother", ru: "Брат", topic: "family" },
-      { id: "40", lt: "Draugas / draugė", en: "Friend (m/f)", ru: "Друг / подруга", topic: "family" },
-    ],
-  },
-  {
-    id: "verbs-a1",
-    name: "Basic Verbs",
-    cards: [
-      { id: "41", lt: "eiti", en: "to go (on foot)", ru: "идти", topic: "verb" },
-      { id: "42", lt: "važiuoti", en: "to go (by transport)", ru: "ехать", topic: "verb" },
-      { id: "43", lt: "valgyti", en: "to eat", ru: "есть", topic: "verb" },
-      { id: "44", lt: "gerti", en: "to drink", ru: "пить", topic: "verb" },
-      { id: "45", lt: "mylėti", en: "to love", ru: "любить", topic: "verb" },
-    ],
-  },
-];
-
-// Achievements module (defs + compute)
-const ACH_DEFS = [
-  { id: "streak3", name: "Warm Breeze", desc: "3-day streak", icon: <Flame className="w-4 h-4" />, test: ({ profile }) => profile.streak >= 3 },
-  { id: "streak7", name: "Forest Walker", desc: "7-day streak", icon: <Leaf className="w-4 h-4" />, test: ({ profile }) => profile.streak >= 7 },
-  { id: "lvl5", name: "Novice Druid", desc: "Reach level 5", icon: <Crown className="w-4 h-4" />, test: ({ profile }) => levelFromXP(profile.xp) >= 5 },
-  { id: "reviews50", name: "Deck Diver", desc: "50 reviews done", icon: <BookOpen className="w-4 h-4" />, test: ({ history }) =>
-      Object.values(history.byDay || {}).reduce((a, d) => a + (d.done || 0), 0) >= 50 },
-];
-const computeAchievements = (ctx) => ACH_DEFS.filter(a => a.test(ctx)).map(a => a.id);
-
-// ---------- helpers ----------
-function levenshtein(a = "", b = "") {
-  const m = a.length, n = b.length;
-  const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
-  for (let i = 0; i <= m; i++) dp[i][0] = i;
-  for (let j = 0; j <= n; j++) dp[0][j] = j;
-  for (let i = 1; i <= m; i++) {
-    for (let j = 1; j <= n; j++) {
-      const cost = a[i - 1].toLowerCase() === b[j - 1].toLowerCase() ? 0 : 1;
-      dp[i][j] = Math.min(
-        dp[i - 1][j] + 1,
-        dp[i][j - 1] + 1,
-        dp[i - 1][j - 1] + cost
-      );
-    }
-  }
-  return dp[m][n];
-}
-const fuzzyCorrect = (user, answer) => levenshtein(user.trim(), answer.trim()) <= Math.max(1, Math.round(answer.trim().length * 0.2));
-const shuffle = (arr) => [...arr].sort(() => Math.random() - 0.5);
 const initCardState = (cards) => cards.map((c) => ({ ...c, ef: 2.5, interval: 0, reps: 0, due: Date.now() }));
-const levelFromXP = (xp) => clamp(Math.floor(0.1 * Math.sqrt(xp)) + 1, 1, 99);
 
 // --- i18n ---
 const STR = {
@@ -230,19 +116,15 @@ export default function BalticBreeze() {
   });
   const T = STR[settings.ui];
 
-  // user (auth/unlocked)
-  const [user, setUser] = useState(() => {
-    const saved = localStorage.getItem(LSK.USER);
-    return saved ? JSON.parse(saved) : DEFAULT_USER;
-  });
-  useEffect(() => { localStorage.setItem(LSK.USER, JSON.stringify(user)); }, [user]);
+  // user (auth/unlocked) via module
+  const [user, setUser] = useState(() => loadUser() || DEFAULT_USER);
+  useEffect(() => { saveUser(user); }, [user]);
 
   // cards derived from unlocked decks
   const [cards, setCards] = useState(() => {
     const saved = localStorage.getItem(LSK.CARDS);
     if (saved) return JSON.parse(saved);
-    const initial = DECKS.filter(d => user.unlocked.includes(d.id)).flatMap(d => d.cards);
-    return initCardState(initial);
+    return initCardState(flattenCards(user.unlocked));
   });
 
   // profile & history
@@ -273,7 +155,7 @@ export default function BalticBreeze() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // migration: if old settings had packs, merge into user.unlocked once
+  // migration: old settings.packs -> user.unlocked once
   useEffect(() => {
     const legacy = JSON.parse(localStorage.getItem("bb_settings_v2") || "null");
     if (legacy?.packs?.length) {
@@ -282,6 +164,7 @@ export default function BalticBreeze() {
     }
   }, []);
 
+  // review queue
   const due = useMemo(() => cards.filter(c => c.due <= Date.now()).slice(0, 12), [cards]);
   const sample = useMemo(() => (due.length ? due[0] : cards[0]), [due, cards]);
 
@@ -304,14 +187,7 @@ export default function BalticBreeze() {
   };
 
   const srsUpdate = (card, quality) => {
-    const now = Date.now(); const next = { ...card }; const q = quality;
-    if (q < 3) { next.reps = 0; next.interval = 0; }
-    else {
-      next.ef = Math.max(1.3, next.ef + (0.1 - (5 - q) * (0.08 + (5 - q) * 0.02)));
-      if (next.reps === 0) next.interval = 1; else if (next.reps === 1) next.interval = 3; else next.interval = Math.round(next.interval * next.ef);
-      next.reps += 1;
-    }
-    next.due = now + (next.interval * 24) * 3600 * 1000;
+    const next = srsUpdateHelper(card, quality);
     setCards(cs => cs.map(c => c.id === next.id ? next : c));
   };
 
@@ -329,20 +205,20 @@ export default function BalticBreeze() {
   const goalPct = clamp(Math.round((dailyCount / goal) * 100), 0, 100);
   const achievements = computeAchievements({ profile, history, user });
 
-  // --- Packs management operates on user.unlocked ---
+  // --- Packs management on user.unlocked ---
   const [packsOpen, setPacksOpen] = useState(false);
   function unlockDeck(pid) {
-    if (user.unlocked.includes(pid)) return;
-    const deck = DECKS.find(p => p.id === pid); if (!deck) return;
+    if ((user.unlocked || []).includes(pid)) return;
+    const deck = ALL_DECKS.find(p => p.id === pid); if (!deck) return;
     const newCards = initCardState(deck.cards.filter(pc => !cards.some(c => c.id === pc.id)));
     setCards(cs => [...cs, ...newCards]);
-    setUser(u => ({ ...u, unlocked: [...u.unlocked, pid] }));
+    setUser(u => unlockModuleFn(u, pid));
   }
   function removeDeck(pid) {
-    if (!user.unlocked.includes(pid) || pid === "core-a1") return; // keep core
-    const keepIds = new Set(DECKS.filter(p => p.id === pid ? false : user.unlocked.includes(p.id)).flatMap(p => p.cards.map(c => c.id)));
+    if (!(user.unlocked || []).includes(pid) || pid === "core-a1") return; // keep core
+    const keepIds = new Set(ALL_DECKS.filter(p => p.id === pid ? false : (user.unlocked || []).includes(p.id)).flatMap(p => p.cards.map(c => c.id)));
     setCards(cs => cs.filter(c => keepIds.has(c.id)));
-    setUser(u => ({ ...u, unlocked: u.unlocked.filter(x => x !== pid) }));
+    setUser(u => removeModuleFn(u, pid));
   }
 
   // --- UI bits ---
@@ -379,7 +255,6 @@ export default function BalticBreeze() {
   );
 
   // ------- Study Modes -------
-
   const Flashcards = () => {
     const card = sample; const [revealed, setRevealed] = useState(false);
     if (!card) return null;
@@ -412,7 +287,7 @@ export default function BalticBreeze() {
     function makeMCQ(card) {
       if (!card) return []; const choices = [card.lt];
       while (choices.length < 4) { const r = cards[Math.floor(Math.random() * cards.length)].lt; if (!choices.includes(r)) choices.push(r); }
-      return shuffle(choices);
+      return choices.sort(() => Math.random() - 0.5);
     }
     useEffect(() => { setChoices(makeMCQ(card)); }, [card?.id]);
     if (!card) return null;
@@ -464,7 +339,7 @@ export default function BalticBreeze() {
   ];
   const DrillEndings = () => {
     const [idx, setIdx] = useState(0); const item = nouns[idx % nouns.length];
-    const sentence = `Aš perku ___ (${item.en})`; const opts = shuffle([item.acc, item.nom, item.nom, item.acc]).slice(0,4);
+    const sentence = `Aš perku ___ (${item.en})`; const opts = [item.acc, item.nom, item.nom, item.acc].sort(() => Math.random() - 0.5).slice(0,4);
     return (
       <Card className={`${cardBg}`}>
         <CardContent className="p-4 flex flex-col gap-3">
@@ -485,7 +360,7 @@ export default function BalticBreeze() {
   ];
   const DrillVerbs = () => {
     const [i, setI] = useState(0); const v = verbs[i % verbs.length];
-    const wrong = shuffle(["eini", "valgiu", "gerau", "geri"]).slice(0,3); const opts = shuffle([v.first, ...wrong]).slice(0,4);
+    const wrong = ["eini", "valgiu", "gerau", "geri"].sort(() => Math.random() - 0.5).slice(0,3); const opts = [v.first, ...wrong].sort(() => Math.random() - 0.5).slice(0,4);
     return (
       <Card className={`${cardBg}`}>
         <CardContent className="p-4 flex flex-col gap-3">
@@ -630,11 +505,11 @@ export default function BalticBreeze() {
                 <DialogTitle>{T.managePacks}</DialogTitle>
               </DialogHeader>
               <div className="space-y-2">
-                {DECKS.map(p => (
+                {ALL_DECKS.map(p => (
                   <div key={p.id} className="flex items-center justify-between border rounded p-2">
                     <div className="text-sm font-medium">{p.name}</div>
                     <div className="flex gap-2">
-                      {!user.unlocked.includes(p.id) ? (
+                      {!((user.unlocked||[]).includes(p.id)) ? (
                         <Button size="sm" onClick={() => unlockDeck(p.id)}>{T.add}</Button>
                       ) : (
                         <Button size="sm" variant="outline" disabled={p.id === 'core-a1'} onClick={() => removeDeck(p.id)}>Remove</Button>
@@ -681,7 +556,7 @@ export default function BalticBreeze() {
         {/* Settings are purposefully away from core study flow */}
         <SettingsPanel />
 
-        <div className="text-center text-xs opacity-60 mt-4">v0.3 — module-ready, no coins, settings panel. Local save only.</div>
+        <div className="text-center text-xs opacity-60 mt-4">v0.3 — modular imports, no coins, settings panel. Local save only.</div>
       </div>
     </div>
   );

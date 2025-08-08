@@ -379,8 +379,6 @@ export default function BalticBreeze() {
   );
 
   // ------- Study Modes -------
-  const due = useMemo(() => cards.filter(c => c.due <= Date.now()).slice(0, 12), [cards]);
-  const sample = useMemo(() => (due.length ? due[0] : cards[0]), [due, cards]);
 
   const Flashcards = () => {
     const card = sample; const [revealed, setRevealed] = useState(false);

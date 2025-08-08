@@ -6,7 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Crown, Flame, Coins, Headphones, Sparkles, Trophy, Languages, RotateCcw, Volume2, BookOpenText, PenSquare, Swords, Sun, Moon, Leaf, Star, ListChecks, BookOpen, Wand2 } from "lucide-react";
+import { Crown, Flame, Coins, Sparkles, Trophy, Languages, RotateCcw, BookOpenText, PenSquare, Swords, Leaf, Star, ListChecks, BookOpen, Wand2 } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
 // ------------------------------------------------------
@@ -140,7 +140,6 @@ const STR = {
     flashcards: "Flashcards",
     quiz: "Quiz",
     typing: "Typing",
-    listening: "Listening",
     drills: "Drills",
     story: "Story",
     progress: "Progress",
@@ -151,7 +150,6 @@ const STR = {
     forgot: "Forgot",
     typeHere: "Type Lithuanian here…",
     check: "Check",
-    speak: "Speak",
     dailyGoal: "Daily goal",
     streak: "Streak",
     coins: "Coins",
@@ -165,7 +163,6 @@ const STR = {
     learnerLang: "UI language",
     russian: "Русский",
     english: "English",
-    ttsNote: "Tip: enable Lithuanian voice in your OS for best TTS.",
     mcq: "Multiple choice",
     next: "Next",
     packs: "Packs",
@@ -178,7 +175,6 @@ const STR = {
     flashcards: "Карточки",
     quiz: "Викторина",
     typing: "Письмо",
-    listening: "Аудирование",
     drills: "Тренировки",
     story: "История",
     progress: "Прогресс",
@@ -189,7 +185,6 @@ const STR = {
     forgot: "Забыл(а)",
     typeHere: "Введите литовский…",
     check: "Проверить",
-    speak: "Слушать",
     dailyGoal: "Дневная цель",
     streak: "Серия дней",
     coins: "Монеты",
@@ -203,7 +198,6 @@ const STR = {
     learnerLang: "Язык интерфейса",
     russian: "Русский",
     english: "English",
-    ttsNote: "Совет: включите литовский голос в системе для лучшего TTS.",
     mcq: "Выбор ответа",
     next: "Дальше",
     packs: "Наборы",
@@ -273,8 +267,16 @@ export default function BalticBreeze() {
   const sample = useMemo(() => (due.length ? due[0] : cards[0]), [due, cards]);
 
   const progressData = useMemo(() => {
-    const days = Object.entries(history.byDay).sort(([a],[b]) => a.localeCompare(b));
-    return days.slice(-14).map(([day, v]) => ({ day: day.slice(5), count: v.done || 0 }));
+    // Seed last 14 days (zeros) so the chart always shows a timeline
+    const out = [];
+    const now = new Date();
+    for (let i = 13; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(now.getDate() - i);
+      const key = d.toISOString().slice(0, 10);
+      out.push({ day: key.slice(5), count: history.byDay[key]?.done || 0 });
+    }
+    return out;
   }, [history]);
 
   const reward = (kind) => {
@@ -366,7 +368,7 @@ export default function BalticBreeze() {
         </div>
         <Dialog open={packsOpen} onOpenChange={setPacksOpen}>
           <DialogTrigger asChild>
-            <Button variant="outline" size="sm" className="gap-2"><ListChecks className="w-4 h-4" /> {STR[settings.ui].managePacks}</Button>
+            <Button variant="outline" size="sm" className="gap-2" onClick={() => setPacksOpen(true)}><ListChecks className="w-4 h-4" /> {STR[settings.ui].managePacks}</Button>
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
@@ -385,6 +387,9 @@ export default function BalticBreeze() {
                   </div>
                 </div>
               ))}
+            </div>
+                      <div className="mt-3 text-right">
+              <Button variant="secondary" onClick={() => setPacksOpen(false)}>Close</Button>
             </div>
           </DialogContent>
         </Dialog>
@@ -424,14 +429,12 @@ export default function BalticBreeze() {
           )}
           <div className="flex gap-2">
             <Button variant="secondary" onClick={() => setRevealed(r => !r)}><BookOpenText className="w-4 h-4 mr-1" />{STR[settings.ui].reveal}</Button>
-            <Button variant="secondary" onClick={() => speak(card.lt)}><Volume2 className="w-4 h-4 mr-1" />{STR[settings.ui].speak}</Button>
           </div>
           <div className="flex gap-2">
             <Button onClick={() => { reward("hard"); srsUpdate(card, 3); }}><Swords className="w-4 h-4 mr-1" />{STR[settings.ui].forgot}</Button>
             <Button variant="outline" onClick={() => { reward("ok"); srsUpdate(card, 4); }}><PenSquare className="w-4 h-4 mr-1" />{STR[settings.ui].unsure}</Button>
             <Button variant="secondary" onClick={() => { reward("easy"); srsUpdate(card, 5); }}><Star className="w-4 h-4 mr-1" />{STR[settings.ui].iKnewIt}</Button>
           </div>
-          <div className="text-xs opacity-70">{STR[settings.ui].ttsNote}</div>
         </CardContent>
       </Card>
     );
@@ -490,7 +493,6 @@ export default function BalticBreeze() {
           <Input value={typingValue} onChange={(e) => setTypingValue(e.target.value)} placeholder={STR[settings.ui].typeHere} onKeyDown={(e) => e.key === 'Enter' && check()} />
           <div className="flex gap-2">
             <Button onClick={check}>{STR[settings.ui].check}</Button>
-            <Button variant="secondary" onClick={() => speak(card.lt)}><Headphones className="w-4 h-4 mr-1" />{STR[settings.ui].speak}</Button>
           </div>
           {feedback && (<div className={`text-sm ${feedback === 'ok' ? 'text-green-300' : 'text-red-300'}`}>{feedback === 'ok' ? '✓ Close enough!' : `✗ Correct: ${card.lt}`}</div>)}
         </CardContent>
@@ -498,21 +500,7 @@ export default function BalticBreeze() {
     );
   };
 
-  const Listening = () => {
-    const card = sample; const [shown, setShown] = useState(false);
-    if (!card) return null;
-    return (
-      <Card className={`${cardBg}`}>
-        <CardContent className="p-6 flex flex-col gap-4 items-center">
-          <div className="text-sm opacity-80">{STR[settings.ui].listening}</div>
-          <Button onClick={() => { speak(card.lt); setShown(false); }}><Headphones className="w-4 h-4 mr-1" />{STR[settings.ui].speak}</Button>
-          <div className="text-lg font-semibold tracking-wide">{shown ? card.lt : '••••••'}</div>
-          <Button variant="outline" onClick={() => setShown(true)}>{STR[settings.ui].reveal}</Button>
-        </CardContent>
-      </Card>
-    );
-  };
-
+  
   // ------- Drills (grammar) -------
   // Drill 1: Case endings (accusative vs nominative simple nouns)
   const nouns = [
@@ -664,17 +652,6 @@ export default function BalticBreeze() {
     </div>
   );
 
-  // --- Speech ---
-  const speak = (text) => {
-    try {
-      const synth = window.speechSynthesis; if (!synth) return;
-      synth.cancel();
-      const u = new SpeechSynthesisUtterance(text);
-      const voices = synth.getVoices();
-      const lt = voices.find(v => /lt|Lithuanian/i.test(v.lang)) || voices.find(v => /English|en/i.test(v.lang)) || voices[0];
-      if (lt) u.voice = lt; synth.speak(u);
-    } catch {}
-  };
 
   return (
     <div className={`min-h-[100vh] w-full bg-gradient-to-br ${appBg} text-emerald-50 p-4 md:p-8`}> 
@@ -697,18 +674,15 @@ export default function BalticBreeze() {
         </Card>
 
         <Tabs defaultValue="flash">
-          <TabsList className="grid grid-cols-6 bg-black/30">
+          <TabsList className="grid grid-cols-5 bg-black/30">
             <TabsTrigger value="flash">{STR[settings.ui].flashcards}</TabsTrigger>
             <TabsTrigger value="quiz">{STR[settings.ui].quiz}</TabsTrigger>
-            <TabsTrigger value="type">{STR[settings.ui].typing}</TabsTrigger>
-            <TabsTrigger value="listen">{STR[settings.ui].listening}</TabsTrigger>
-            <TabsTrigger value="drills">{STR[settings.ui].drills}</TabsTrigger>
+            <TabsTrigger value="type">{STR[settings.ui].typing}</TabsTrigger>            <TabsTrigger value="drills">{STR[settings.ui].drills}</TabsTrigger>
             <TabsTrigger value="story">{STR[settings.ui].story}</TabsTrigger>
           </TabsList>
           <TabsContent value="flash" className="mt-3"><Flashcards /></TabsContent>
           <TabsContent value="quiz" className="mt-3"><QuizMCQ /></TabsContent>
           <TabsContent value="type" className="mt-3"><Typing /></TabsContent>
-          <TabsContent value="listen" className="mt-3"><Listening /></TabsContent>
           <TabsContent value="drills" className="mt-3"><Drills /></TabsContent>
           <TabsContent value="story" className="mt-3"><Story /></TabsContent>
         </Tabs>

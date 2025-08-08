@@ -6,47 +6,30 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Crown, Flame, Coins, Sparkles, Trophy, Languages, RotateCcw, BookOpenText, PenSquare, Swords, Leaf, Star, ListChecks, BookOpen, Wand2 } from "lucide-react";
+import { Crown, Flame, Sparkles, Trophy, Languages, RotateCcw, BookOpenText, PenSquare, Swords, Leaf, Star, ListChecks, BookOpen, Wand2 } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
 // ------------------------------------------------------
-// Baltic Breeze v0.2 — Add packs, drills, story mode, dark runic UI
+// Baltic Breeze v0.3 — Module-ready structure, no coins, Settings panel
 // ------------------------------------------------------
 
 const LSK = {
-  PROFILE: "bb_profile_v1",
-  STREAK: "bb_streak_v1",
-  CARDS: "bb_cards_v2", // bump key due to packs
+  PROFILE: "bb_profile_v2", // bump for coins removal
+  CARDS: "bb_cards_v2",
   HISTORY: "bb_history_v1",
-  SETTINGS: "bb_settings_v2", // bump key due to theme+packs
+  SETTINGS: "bb_settings_v3", // moved packs out
+  USER: "bb_user_v1", // new: user module placeholder
 };
 
 const todayKey = () => new Date().toISOString().slice(0, 10);
 const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
 
-// --- small utils ---
-function levenshtein(a = "", b = "") {
-  const m = a.length, n = b.length;
-  const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
-  for (let i = 0; i <= m; i++) dp[i][0] = i;
-  for (let j = 0; j <= n; j++) dp[0][j] = j;
-  for (let i = 1; i <= m; i++) {
-    for (let j = 1; j <= n; j++) {
-      const cost = a[i - 1].toLowerCase() === b[j - 1].toLowerCase() ? 0 : 1;
-      dp[i][j] = Math.min(
-        dp[i - 1][j] + 1,
-        dp[i][j - 1] + 1,
-        dp[i - 1][j - 1] + cost
-      );
-    }
-  }
-  return dp[m][n];
-}
-const fuzzyCorrect = (user, answer) => levenshtein(user.trim(), answer.trim()) <= Math.max(1, Math.round(answer.trim().length * 0.2));
-const shuffle = (arr) => [...arr].sort(() => Math.random() - 0.5);
+// ---------- Minimal "modules" (inline for now; will split into files later) ----------
+// User module
+const DEFAULT_USER = { id: "anon", displayName: "Guest", unlocked: ["core-a1", "food-a1"] };
 
-// --- PACKS (more vocab) ---
-const PACKS = [
+// Decks registry (each will become its own module file later)
+const DECKS = [
   {
     id: "core-a1",
     name: "Core A1",
@@ -130,7 +113,38 @@ const PACKS = [
   },
 ];
 
+// Achievements module (defs + compute)
+const ACH_DEFS = [
+  { id: "streak3", name: "Warm Breeze", desc: "3-day streak", icon: <Flame className="w-4 h-4" />, test: ({ profile }) => profile.streak >= 3 },
+  { id: "streak7", name: "Forest Walker", desc: "7-day streak", icon: <Leaf className="w-4 h-4" />, test: ({ profile }) => profile.streak >= 7 },
+  { id: "lvl5", name: "Novice Druid", desc: "Reach level 5", icon: <Crown className="w-4 h-4" />, test: ({ profile }) => levelFromXP(profile.xp) >= 5 },
+  { id: "reviews50", name: "Deck Diver", desc: "50 reviews done", icon: <BookOpen className="w-4 h-4" />, test: ({ history }) =>
+      Object.values(history.byDay || {}).reduce((a, d) => a + (d.done || 0), 0) >= 50 },
+];
+const computeAchievements = (ctx) => ACH_DEFS.filter(a => a.test(ctx)).map(a => a.id);
+
+// ---------- helpers ----------
+function levenshtein(a = "", b = "") {
+  const m = a.length, n = b.length;
+  const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+  for (let i = 0; i <= m; i++) dp[i][0] = i;
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      const cost = a[i - 1].toLowerCase() === b[j - 1].toLowerCase() ? 0 : 1;
+      dp[i][j] = Math.min(
+        dp[i - 1][j] + 1,
+        dp[i][j - 1] + 1,
+        dp[i - 1][j - 1] + cost
+      );
+    }
+  }
+  return dp[m][n];
+}
+const fuzzyCorrect = (user, answer) => levenshtein(user.trim(), answer.trim()) <= Math.max(1, Math.round(answer.trim().length * 0.2));
+const shuffle = (arr) => [...arr].sort(() => Math.random() - 0.5);
 const initCardState = (cards) => cards.map((c) => ({ ...c, ef: 2.5, interval: 0, reps: 0, due: Date.now() }));
+const levelFromXP = (xp) => clamp(Math.floor(0.1 * Math.sqrt(xp)) + 1, 1, 99);
 
 // --- i18n ---
 const STR = {
@@ -152,7 +166,6 @@ const STR = {
     check: "Check",
     dailyGoal: "Daily goal",
     streak: "Streak",
-    coins: "Coins",
     level: "Level",
     achievements: "Achievements",
     reset: "Reset day",
@@ -168,6 +181,8 @@ const STR = {
     packs: "Packs",
     managePacks: "Manage Packs",
     add: "Add",
+    settings: "Settings",
+    language: "Language",
   },
   ru: {
     title: "Балтийский Бриз",
@@ -187,7 +202,6 @@ const STR = {
     check: "Проверить",
     dailyGoal: "Дневная цель",
     streak: "Серия дней",
-    coins: "Монеты",
     level: "Уровень",
     achievements: "Достижения",
     reset: "Завершить день",
@@ -203,39 +217,38 @@ const STR = {
     packs: "Наборы",
     managePacks: "Управление наборами",
     add: "Добавить",
+    settings: "Настройки",
+    language: "Язык",
   },
 };
 
-// leveling
-const levelFromXP = (xp) => clamp(Math.floor(0.1 * Math.sqrt(xp)) + 1, 1, 99);
-
-// achievements
-const ACHS = [
-  { id: "streak3", name: "Warm Breeze", desc: "3-day streak", icon: <Flame className="w-4 h-4" />, test: (p) => p.streak >= 3 },
-  { id: "streak7", name: "Forest Walker", desc: "7-day streak", icon: <Leaf className="w-4 h-4" />, test: (p) => p.streak >= 7 },
-  { id: "coin500", name: "Amber Hunter", desc: "500 coins", icon: <Coins className="w-4 h-4" />, test: (p) => p.coins >= 500 },
-  { id: "lvl5", name: "Novice Druid", desc: "Reach level 5", icon: <Crown className="w-4 h-4" />, test: (p) => levelFromXP(p.xp) >= 5 },
-];
-
 export default function BalticBreeze() {
-  // settings: theme + UI + goal + selectedPacks
+  // settings (ui + theme + goal)
   const [settings, setSettings] = useState(() => {
     const saved = localStorage.getItem(LSK.SETTINGS);
-    return saved ? JSON.parse(saved) : { theme: "forest", ui: "en", dailyGoal: 30, packs: ["core-a1", "food-a1"] };
+    return saved ? JSON.parse(saved) : { theme: "forest", ui: "en", dailyGoal: 30 };
   });
   const T = STR[settings.ui];
 
-  // cards are derived from selected packs, but we persist SRS fields
+  // user (auth/unlocked)
+  const [user, setUser] = useState(() => {
+    const saved = localStorage.getItem(LSK.USER);
+    return saved ? JSON.parse(saved) : DEFAULT_USER;
+  });
+  useEffect(() => { localStorage.setItem(LSK.USER, JSON.stringify(user)); }, [user]);
+
+  // cards derived from unlocked decks
   const [cards, setCards] = useState(() => {
     const saved = localStorage.getItem(LSK.CARDS);
     if (saved) return JSON.parse(saved);
-    const initial = PACKS.filter(p => settings.packs.includes(p.id)).flatMap(p => p.cards);
+    const initial = DECKS.filter(d => user.unlocked.includes(d.id)).flatMap(d => d.cards);
     return initCardState(initial);
   });
 
+  // profile & history
   const [profile, setProfile] = useState(() => {
     const saved = localStorage.getItem(LSK.PROFILE);
-    return saved ? JSON.parse(saved) : { xp: 0, coins: 0, streak: 0, lastDay: null };
+    return saved ? JSON.parse(saved) : { xp: 0, streak: 0, lastDay: null };
   });
   const [history, setHistory] = useState(() => {
     const saved = localStorage.getItem(LSK.HISTORY);
@@ -248,31 +261,35 @@ export default function BalticBreeze() {
   useEffect(() => { localStorage.setItem(LSK.HISTORY, JSON.stringify(history)); }, [history]);
   useEffect(() => { localStorage.setItem(LSK.SETTINGS, JSON.stringify(settings)); }, [settings]);
 
-  // Day / streak handling (simple)
+  // Day / streak handling
   useEffect(() => {
     const today = todayKey();
     if (profile.lastDay !== today) {
-      const yesterday = new Date();
-      yesterday.setDate(new Date().getDate() - 1);
+      const yesterday = new Date(); yesterday.setDate(new Date().getDate() - 1);
       const yk = yesterday.toISOString().slice(0, 10);
       const newStreak = profile.lastDay === yk ? (profile.streak + 1) : (profile.lastDay ? 0 : 0);
       setProfile((p) => ({ ...p, lastDay: today, streak: newStreak }));
     }
-    const cnt = (history.byDay[today]?.done || 0);
-    // no-op but ensures dailyCount derived later is accurate
   // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // migration: if old settings had packs, merge into user.unlocked once
+  useEffect(() => {
+    const legacy = JSON.parse(localStorage.getItem("bb_settings_v2") || "null");
+    if (legacy?.packs?.length) {
+      setUser(u => ({ ...u, unlocked: Array.from(new Set([...(u.unlocked||[]), ...legacy.packs])) }));
+      localStorage.removeItem("bb_settings_v2");
+    }
   }, []);
 
   const due = useMemo(() => cards.filter(c => c.due <= Date.now()).slice(0, 12), [cards]);
   const sample = useMemo(() => (due.length ? due[0] : cards[0]), [due, cards]);
 
   const progressData = useMemo(() => {
-    // Seed last 14 days (zeros) so the chart always shows a timeline
-    const out = [];
-    const now = new Date();
+    // Seed last 14 days (zeros)
+    const out = []; const now = new Date();
     for (let i = 13; i >= 0; i--) {
-      const d = new Date(now);
-      d.setDate(now.getDate() - i);
+      const d = new Date(now); d.setDate(now.getDate() - i);
       const key = d.toISOString().slice(0, 10);
       out.push({ day: key.slice(5), count: history.byDay[key]?.done || 0 });
     }
@@ -280,17 +297,14 @@ export default function BalticBreeze() {
   }, [history]);
 
   const reward = (kind) => {
-    const gain = kind === "easy" ? 20 : kind === "ok" ? 12 : 6;
     const xp = kind === "easy" ? 12 : kind === "ok" ? 8 : 5;
-    setProfile(p => ({ ...p, coins: p.coins + gain, xp: p.xp + xp }));
+    setProfile(p => ({ ...p, xp: p.xp + xp }));
     const today = todayKey();
     setHistory(h => ({ byDay: { ...h.byDay, [today]: { done: (h.byDay[today]?.done || 0) + 1 } } }));
   };
 
   const srsUpdate = (card, quality) => {
-    const now = Date.now();
-    const next = { ...card };
-    const q = quality;
+    const now = Date.now(); const next = { ...card }; const q = quality;
     if (q < 3) { next.reps = 0; next.interval = 0; }
     else {
       next.ef = Math.max(1.3, next.ef + (0.1 - (5 - q) * (0.08 + (5 - q) * 0.02)));
@@ -302,7 +316,7 @@ export default function BalticBreeze() {
   };
 
   // theme
-  const theme = settings.theme; // 'forest' | 'amber' | 'runic'
+  const theme = settings.theme || "forest"; // 'forest' | 'amber' | 'runic'
   const appBg = theme === "forest" ? "from-emerald-900 via-emerald-800 to-emerald-900" : theme === "amber" ? "from-amber-900 via-amber-800 to-amber-900" : "from-slate-950 via-purple-950 to-slate-950";
   const cardBg = theme === "forest" ? "bg-emerald-950/60 border-emerald-800" : theme === "amber" ? "bg-amber-950/60 border-amber-800" : "bg-slate-950/70 border-purple-900";
   const accent = theme === "forest" ? "text-emerald-300" : theme === "amber" ? "text-amber-300" : "text-purple-300 tracking-wider";
@@ -313,35 +327,25 @@ export default function BalticBreeze() {
   const dailyCount = history.byDay[today]?.done || 0;
   const goal = settings.dailyGoal;
   const goalPct = clamp(Math.round((dailyCount / goal) * 100), 0, 100);
-  const achievements = ACHS.filter(a => a.test(profile)).map(a => a.id);
+  const achievements = computeAchievements({ profile, history, user });
 
-  // --- Packs management ---
+  // --- Packs management operates on user.unlocked ---
   const [packsOpen, setPacksOpen] = useState(false);
-  function addPack(pid) {
-    if (settings.packs.includes(pid)) return;
-    const pack = PACKS.find(p => p.id === pid);
-    if (!pack) return;
-    const newCards = initCardState(pack.cards.filter(pc => !cards.some(c => c.id === pc.id)));
+  function unlockDeck(pid) {
+    if (user.unlocked.includes(pid)) return;
+    const deck = DECKS.find(p => p.id === pid); if (!deck) return;
+    const newCards = initCardState(deck.cards.filter(pc => !cards.some(c => c.id === pc.id)));
     setCards(cs => [...cs, ...newCards]);
-    setSettings(s => ({ ...s, packs: [...s.packs, pid] }));
+    setUser(u => ({ ...u, unlocked: [...u.unlocked, pid] }));
   }
-
-  function removePack(pid) {
-    if (!settings.packs.includes(pid) || pid === "core-a1") return; // always keep core
-    const keepIds = new Set(PACKS.filter(p => p.id === pid ? false : settings.packs.includes(p.id)).flatMap(p => p.cards.map(c => c.id)));
+  function removeDeck(pid) {
+    if (!user.unlocked.includes(pid) || pid === "core-a1") return; // keep core
+    const keepIds = new Set(DECKS.filter(p => p.id === pid ? false : user.unlocked.includes(p.id)).flatMap(p => p.cards.map(c => c.id)));
     setCards(cs => cs.filter(c => keepIds.has(c.id)));
-    setSettings(s => ({ ...s, packs: s.packs.filter(x => x !== pid) }));
+    setUser(u => ({ ...u, unlocked: u.unlocked.filter(x => x !== pid) }));
   }
 
-  // --- Components ---
-  const Stat = ({ icon, label, value }) => (
-    <div className="flex items-center gap-2">
-      {icon}
-      <div className={`text-sm opacity-80 ${runicClass}`}>{label}</div>
-      <div className={`font-semibold ml-auto ${runicClass}`}>{value}</div>
-    </div>
-  );
-
+  // --- UI bits ---
   const Header = () => (
     <div className="flex items-center justify-between">
       <div>
@@ -350,57 +354,12 @@ export default function BalticBreeze() {
         </h1>
         <p className={`text-sm opacity-80 ${runicClass}`}>{STR[settings.ui].subtitle}</p>
       </div>
-      <div className="flex items-center gap-4">
-        <div className="flex items-center gap-2">
-          <Languages className="w-4 h-4 opacity-80" />
-          <select className="bg-black/40 border rounded px-2 py-1 text-sm" value={settings.ui} onChange={(e) => setSettings(s => ({ ...s, ui: e.target.value }))}>
-            <option value="en">{STR.en.english}</option>
-            <option value="ru">{STR.ru.russian}</option>
-          </select>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs opacity-80">{STR[settings.ui].theme}</span>
-          <select className="bg-black/40 border rounded px-2 py-1 text-sm" value={settings.theme} onChange={(e) => setSettings(s => ({ ...s, theme: e.target.value }))}>
-            <option value="forest">{STR[settings.ui].forest}</option>
-            <option value="amber">{STR[settings.ui].amber}</option>
-            <option value="runic">{STR[settings.ui].runic}</option>
-          </select>
-        </div>
-        <Dialog open={packsOpen} onOpenChange={setPacksOpen}>
-          <DialogTrigger asChild>
-            <Button variant="outline" size="sm" className="gap-2" onClick={() => setPacksOpen(true)}><ListChecks className="w-4 h-4" /> {STR[settings.ui].managePacks}</Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>{STR[settings.ui].packs}</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-2">
-              {PACKS.map(p => (
-                <div key={p.id} className="flex items-center justify-between border rounded p-2">
-                  <div className="text-sm font-medium">{p.name}</div>
-                  <div className="flex gap-2">
-                    {!settings.packs.includes(p.id) ? (
-                      <Button size="sm" onClick={() => addPack(p.id)}>{STR[settings.ui].add}</Button>
-                    ) : (
-                      <Button size="sm" variant="outline" disabled={p.id === 'core-a1'} onClick={() => removePack(p.id)}>Remove</Button>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-                      <div className="mt-3 text-right">
-              <Button variant="secondary" onClick={() => setPacksOpen(false)}>Close</Button>
-            </div>
-          </DialogContent>
-        </Dialog>
-      </div>
     </div>
   );
 
   const HUD = () => (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
       <Card className={`${cardBg}`}><CardContent className="p-3"><Stat icon={<Flame className="w-4 h-4" />} label={STR[settings.ui].streak} value={`${profile.streak}🔥`} /></CardContent></Card>
-      <Card className={`${cardBg}`}><CardContent className="p-3"><Stat icon={<Coins className="w-4 h-4" />} label={STR[settings.ui].coins} value={profile.coins} /></CardContent></Card>
       <Card className={`${cardBg}`}><CardContent className="p-3 flex flex-col gap-2"><Stat icon={<Crown className="w-4 h-4" />} label={STR[settings.ui].level} value={level} /><Progress value={(profile.xp % 100)}/> </CardContent></Card>
       <Card className={`${cardBg}`}>
         <CardContent className="p-3 flex flex-col gap-2">
@@ -411,10 +370,20 @@ export default function BalticBreeze() {
     </div>
   );
 
+  const Stat = ({ icon, label, value }) => (
+    <div className="flex items-center gap-2">
+      {icon}
+      <div className={`text-sm opacity-80 ${runicClass}`}>{label}</div>
+      <div className={`font-semibold ml-auto ${runicClass}`}>{value}</div>
+    </div>
+  );
+
   // ------- Study Modes -------
+  const due = useMemo(() => cards.filter(c => c.due <= Date.now()).slice(0, 12), [cards]);
+  const sample = useMemo(() => (due.length ? due[0] : cards[0]), [due, cards]);
+
   const Flashcards = () => {
-    const card = sample;
-    const [revealed, setRevealed] = useState(false);
+    const card = sample; const [revealed, setRevealed] = useState(false);
     if (!card) return null;
     return (
       <Card className={`${cardBg}`}>
@@ -441,16 +410,10 @@ export default function BalticBreeze() {
   };
 
   const QuizMCQ = () => {
-    const card = sample;
-    const [choices, setChoices] = useState(() => makeMCQ(card));
-    const [picked, setPicked] = useState(null);
+    const card = sample; const [choices, setChoices] = useState(() => makeMCQ(card)); const [picked, setPicked] = useState(null);
     function makeMCQ(card) {
-      if (!card) return [];
-      const choices = [card.lt];
-      while (choices.length < 4) {
-        const r = cards[Math.floor(Math.random() * cards.length)].lt;
-        if (!choices.includes(r)) choices.push(r);
-      }
+      if (!card) return []; const choices = [card.lt];
+      while (choices.length < 4) { const r = cards[Math.floor(Math.random() * cards.length)].lt; if (!choices.includes(r)) choices.push(r); }
       return shuffle(choices);
     }
     useEffect(() => { setChoices(makeMCQ(card)); }, [card?.id]);
@@ -474,16 +437,11 @@ export default function BalticBreeze() {
   };
 
   const Typing = () => {
-    const card = sample;
-    const [typingValue, setTypingValue] = useState("");
-    const [feedback, setFeedback] = useState(null);
+    const card = sample; const [typingValue, setTypingValue] = useState(""); const [feedback, setFeedback] = useState(null);
     if (!card) return null;
     function check() {
-      if (!typingValue.trim()) return;
-      const ok = fuzzyCorrect(typingValue, card.lt);
-      setFeedback(ok ? "ok" : "bad");
-      reward(ok ? "ok" : "hard");
-      srsUpdate(card, ok ? 4 : 2);
+      if (!typingValue.trim()) return; const ok = fuzzyCorrect(typingValue, card.lt);
+      setFeedback(ok ? "ok" : "bad"); reward(ok ? "ok" : "hard"); srsUpdate(card, ok ? 4 : 2);
       setTimeout(() => { setTypingValue(""); setFeedback(null); }, 900);
     }
     return (
@@ -500,47 +458,36 @@ export default function BalticBreeze() {
     );
   };
 
-  
   // ------- Drills (grammar) -------
-  // Drill 1: Case endings (accusative vs nominative simple nouns)
   const nouns = [
     { stem: "knyg", nom: "knyga", acc: "knygą", en: "book" },
     { stem: "kav", nom: "kava", acc: "kavą", en: "coffee" },
     { stem: "vandeni", nom: "vanduo", acc: "vandenį", en: "water" },
   ];
-
   const DrillEndings = () => {
-    const [idx, setIdx] = useState(0);
-    const item = nouns[idx % nouns.length];
-    const sentence = `Aš perku ___ (${item.en})`;
-    const opts = shuffle([item.acc, item.nom, item.nom, item.acc]).slice(0,4);
+    const [idx, setIdx] = useState(0); const item = nouns[idx % nouns.length];
+    const sentence = `Aš perku ___ (${item.en})`; const opts = shuffle([item.acc, item.nom, item.nom, item.acc]).slice(0,4);
     return (
       <Card className={`${cardBg}`}>
         <CardContent className="p-4 flex flex-col gap-3">
           <div className="text-sm opacity-80 flex items-center gap-2"><Wand2 className="w-4 h-4"/>Accusative for direct object</div>
           <div className="text-lg">{sentence}</div>
           <div className="grid grid-cols-2 gap-2">
-            {opts.map(o => <Button key={o} variant="outline" onClick={() => {
-              const ok = o === item.acc; reward(ok ? "easy" : "hard"); setIdx(idx+1);
-            }}>{o}</Button>)}
+            {opts.map(o => <Button key={o} variant="outline" onClick={() => { const ok = o === item.acc; reward(ok ? "easy" : "hard"); setIdx(idx+1); }}>{o}</Button>)}
           </div>
         </CardContent>
       </Card>
     );
   };
 
-  // Drill 2: Verb present tense endings (1st person singular)
   const verbs = [
     { inf: "eiti", stem: "ein-", first: "einu", en: "go (I)" },
     { inf: "valgyti", stem: "valg-", first: "valgau", en: "eat (I)" },
     { inf: "gerti", stem: "ger-", first: "geriu", en: "drink (I)" },
   ];
-
   const DrillVerbs = () => {
-    const [i, setI] = useState(0);
-    const v = verbs[i % verbs.length];
-    const wrong = shuffle(["eini", "valgiu", "gerau", "geri"]).slice(0,3);
-    const opts = shuffle([v.first, ...wrong]).slice(0,4);
+    const [i, setI] = useState(0); const v = verbs[i % verbs.length];
+    const wrong = shuffle(["eini", "valgiu", "gerau", "geri"]).slice(0,3); const opts = shuffle([v.first, ...wrong]).slice(0,4);
     return (
       <Card className={`${cardBg}`}>
         <CardContent className="p-4 flex flex-col gap-3">
@@ -553,7 +500,6 @@ export default function BalticBreeze() {
       </Card>
     );
   };
-
   const Drills = () => (
     <div className="grid md:grid-cols-2 gap-3">
       <DrillEndings />
@@ -563,35 +509,21 @@ export default function BalticBreeze() {
 
   // ------- Story Mode -------
   const story = [
-    {
-      id: 1,
-      text: "Rytas Vilniuje. Tu užeini į kavinę ir sakai: …",
-      choices: [
-        { txt: "Labas! Vieną kavą, prašau.", good: true, gain: "ok" },
-        { txt: "Taip.", good: false, gain: "hard" },
-      ],
-    },
-    {
-      id: 2,
-      text: "Barista klausia: ‘Su pienu ar be?’ Tu atsakai: …",
-      choices: [
-        { txt: "Be pieno, ačiū.", good: true, gain: "easy" },
-        { txt: "Aš suprantu.", good: false, gain: "hard" },
-      ],
-    },
-    {
-      id: 3,
-      text: "Tu nori sumokėti. Ką sakai?",
-      choices: [
-        { txt: "Sąskaita, prašau.", good: true, gain: "easy" },
-        { txt: "Kur tualetas?", good: false, gain: "hard" },
-      ],
-    },
+    { id: 1, text: "Rytas Vilniuje. Tu užeini į kavinę ir sakai: …", choices: [
+      { txt: "Labas! Vieną kavą, prašau.", good: true, gain: "ok" },
+      { txt: "Taip.", good: false, gain: "hard" },
+    ]},
+    { id: 2, text: "Barista klausia: ‘Su pienu ar be?’ Tu atsakai: …", choices: [
+      { txt: "Be pieno, ačiū.", good: true, gain: "easy" },
+      { txt: "Aš suprantu.", good: false, gain: "hard" },
+    ]},
+    { id: 3, text: "Tu nori sumokėti. Ką sakai?", choices: [
+      { txt: "Sąskaita, prašau.", good: true, gain: "easy" },
+      { txt: "Kur tualetas?", good: false, gain: "hard" },
+    ]},
   ];
-
   const Story = () => {
-    const [step, setStep] = useState(0);
-    const node = story[step];
+    const [step, setStep] = useState(0); const node = story[step];
     if (!node) return (
       <Card className={`${cardBg}`}><CardContent className="p-6 text-center flex flex-col items-center gap-2">
         <BookOpen className="w-6 h-6" />
@@ -637,7 +569,7 @@ export default function BalticBreeze() {
           <div className="flex flex-wrap gap-2">
             {achievements.length ? achievements.map(id => (
               <Badge key={id} className={`px-3 py-1 gap-1 ${theme === 'forest' ? 'bg-emerald-800' : theme === 'amber' ? 'bg-amber-800' : 'bg-purple-900'}`}>
-                {ACHS.find(a => a.id === id)?.icon}<span>{ACHS.find(a => a.id === id)?.name}</span>
+                {ACH_DEFS.find(a => a.id === id)?.icon}<span>{ACH_DEFS.find(a => a.id === id)?.name}</span>
               </Badge>
             )) : (<div className="text-xs opacity-70">Complete goals to unlock achievements!</div>)}
           </div>
@@ -652,6 +584,77 @@ export default function BalticBreeze() {
     </div>
   );
 
+  // ------- Settings Panel (theme + language + goal + manage packs) -------
+  const SettingsPanel = () => (
+    <Card className={`${cardBg}`}>
+      <CardContent className="p-4 space-y-4">
+        <div className="flex items-center gap-2 text-sm font-semibold opacity-90">
+          <ListChecks className="w-4 h-4" /> {T.settings}
+        </div>
+
+        <div className="grid md:grid-cols-3 gap-3">
+          {/* Language */}
+          <div className="space-y-2">
+            <div className="text-xs opacity-70">{T.language}</div>
+            <div className="flex gap-2">
+              <Button variant={settings.ui==='en'? 'secondary':'outline'} onClick={() => setSettings(s=>({...s, ui:'en'}))}>EN</Button>
+              <Button variant={settings.ui==='ru'? 'secondary':'outline'} onClick={() => setSettings(s=>({...s, ui:'ru'}))}>RU</Button>
+            </div>
+          </div>
+          {/* Theme */}
+          <div className="space-y-2">
+            <div className="text-xs opacity-70">{T.theme}</div>
+            <div className="flex gap-2">
+              <Button variant={theme==='forest'? 'secondary':'outline'} onClick={()=>setSettings(s=>({...s, theme:'forest'}))}>{T.forest}</Button>
+              <Button variant={theme==='amber'? 'secondary':'outline'} onClick={()=>setSettings(s=>({...s, theme:'amber'}))}>{T.amber}</Button>
+              <Button variant={theme==='runic'? 'secondary':'outline'} onClick={()=>setSettings(s=>({...s, theme:'runic'}))}>{T.runic}</Button>
+            </div>
+          </div>
+          {/* Goal */}
+          <div className="space-y-2">
+            <div className="text-xs opacity-70">{T.dailyGoal}</div>
+            <div className="flex items-center gap-2">
+              <Input type="number" value={settings.dailyGoal} onChange={(e)=>setSettings(s=>({...s, dailyGoal: clamp(parseInt(e.target.value||"0"),5,120)}))} className="w-24" />
+              <div className="text-xs opacity-60">items/day</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Manage Packs */}
+        <div className="border-t border-white/10 pt-3">
+          <div className="flex items-center justify-between">
+            <div className="text-xs opacity-70">{T.packs}</div>
+            <Button variant="outline" size="sm" onClick={()=>setPacksOpen(true)}><ListChecks className="w-4 h-4 mr-1"/>{T.managePacks}</Button>
+          </div>
+          <Dialog open={packsOpen} onOpenChange={setPacksOpen}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>{T.managePacks}</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-2">
+                {DECKS.map(p => (
+                  <div key={p.id} className="flex items-center justify-between border rounded p-2">
+                    <div className="text-sm font-medium">{p.name}</div>
+                    <div className="flex gap-2">
+                      {!user.unlocked.includes(p.id) ? (
+                        <Button size="sm" onClick={() => unlockDeck(p.id)}>{T.add}</Button>
+                      ) : (
+                        <Button size="sm" variant="outline" disabled={p.id === 'core-a1'} onClick={() => removeDeck(p.id)}>Remove</Button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-3 text-right">
+                <Button variant="secondary" onClick={() => setPacksOpen(false)}>Close</Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+        </div>
+
+      </CardContent>
+    </Card>
+  );
 
   return (
     <div className={`min-h-[100vh] w-full bg-gradient-to-br ${appBg} text-emerald-50 p-4 md:p-8`}> 
@@ -659,25 +662,13 @@ export default function BalticBreeze() {
         <Header />
         <HUD />
 
-        <Card className={`${cardBg}`}>
-          <CardContent className="p-3 flex flex-wrap items-center gap-3 justify-between">
-            <div className="flex items-center gap-2 text-sm">
-              <Badge className={theme === 'forest' ? 'bg-emerald-800' : theme === 'amber' ? 'bg-amber-800' : 'bg-purple-900'}>
-                <Leaf className="w-4 h-4 mr-1" />{theme === 'forest' ? STR[settings.ui].forest : theme === 'amber' ? STR[settings.ui].amber : STR[settings.ui].runic}
-              </Badge>
-              <div className="opacity-80 ml-3">Goal:</div>
-              <input type="number" className="w-16 bg-black/40 border rounded px-2 py-1 text-sm" value={settings.dailyGoal}
-                onChange={(e) => setSettings(s => ({ ...s, dailyGoal: clamp(parseInt(e.target.value||"0"), 5, 120) }))} />
-            </div>
-            <div className="text-xs opacity-70">Progress is saved locally. Manage packs to grow your deck.</div>
-          </CardContent>
-        </Card>
-
+        {/* Study area */}
         <Tabs defaultValue="flash">
           <TabsList className="grid grid-cols-5 bg-black/30">
             <TabsTrigger value="flash">{STR[settings.ui].flashcards}</TabsTrigger>
             <TabsTrigger value="quiz">{STR[settings.ui].quiz}</TabsTrigger>
-            <TabsTrigger value="type">{STR[settings.ui].typing}</TabsTrigger>            <TabsTrigger value="drills">{STR[settings.ui].drills}</TabsTrigger>
+            <TabsTrigger value="type">{STR[settings.ui].typing}</TabsTrigger>
+            <TabsTrigger value="drills">{STR[settings.ui].drills}</TabsTrigger>
             <TabsTrigger value="story">{STR[settings.ui].story}</TabsTrigger>
           </TabsList>
           <TabsContent value="flash" className="mt-3"><Flashcards /></TabsContent>
@@ -689,7 +680,10 @@ export default function BalticBreeze() {
 
         <ProgressView />
 
-        <div className="text-center text-xs opacity-60 mt-4">v0.2 — packs, drills, story, runic theme. Local save only.</div>
+        {/* Settings are purposefully away from core study flow */}
+        <SettingsPanel />
+
+        <div className="text-center text-xs opacity-60 mt-4">v0.3 — module-ready, no coins, settings panel. Local save only.</div>
       </div>
     </div>
   );

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, Suspense } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -31,6 +31,7 @@ const LSK = {
 
 const todayKey = () => new Date().toISOString().slice(0, 10);
 const initCardState = (cards) => cards.map((c) => ({ ...c, ef: 2.5, interval: 0, reps: 0, due: Date.now() }));
+const ProgressChart = React.lazy(() => import("@/components/ProgressChart"));
 
 // --- i18n ---
 const STR = {
@@ -425,13 +426,9 @@ export default function BalticBreeze() {
           <div className="text-sm opacity-80 mb-2">14-day activity</div>
           <div className="h-48">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={progressData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="day" />
-                <YAxis allowDecimals={false} />
-                <Tooltip />
-                <Line type="monotone" dataKey="count" strokeWidth={2} />
-              </LineChart>
+              <Suspense fallback={<div className="h-48 opacity-60 text-sm flex items-center justify-center">Loading chart…</div>}>
+                <ProgressChart data={progressData} />
+              </Suspense>
             </ResponsiveContainer>
           </div>
         </CardContent>

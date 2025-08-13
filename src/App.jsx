@@ -1,37 +1,36 @@
-import React, { useEffect, useMemo, useState, Suspense } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Crown, Flame, Sparkles, Trophy, RotateCcw, BookOpenText, PenSquare, Swords, Leaf, Star, ListChecks, BookOpen, Wand2 } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
-// ---- modules (new) ----
-import { DEFAULT_USER, loadUser, saveUser, unlockModule as unlockModuleFn, removeModule as removeModuleFn } from "@/modules/user";
+// modules/state
 import { ALL_DECKS, flattenCards } from "@/modules/decks";
-import { computeAchievements } from "@/modules/achievements/compute";
+import { loadUser, saveUser, unlockModule, removeModule } from "@/modules/user";
 import { ACH_DEFS } from "@/modules/achievements/defs.jsx";
-import { srsUpdateHelper, fuzzyCorrect } from "@/state/srs";
+import { computeAchievements } from "@/modules/achievements/compute";
 import { clamp, levelFromXP } from "@/state/profile";
+import { fuzzyCorrect, srsUpdateHelper } from "@/state/srs";
 
 // ------------------------------------------------------
-// Baltic Breeze v0.3 — Modular imports, no coins, Settings panel
+// Baltic Breeze v0.3 — Modular + auto-append new cards
 // ------------------------------------------------------
 
 const LSK = {
-  PROFILE: "bb_profile_v2",
+  PROFILE: "bb_profile_v2", // bumped when coins removed
   CARDS: "bb_cards_v2",
   HISTORY: "bb_history_v1",
-  SETTINGS: "bb_settings_v3",
+  SETTINGS: "bb_settings_v3", // packs moved to user module
   USER: "bb_user_v1",
 };
 
 const todayKey = () => new Date().toISOString().slice(0, 10);
 const initCardState = (cards) => cards.map((c) => ({ ...c, ef: 2.5, interval: 0, reps: 0, due: Date.now() }));
-const ProgressChart = React.lazy(() => import("@/components/ProgressChart"));
 
 // --- i18n ---
 const STR = {
@@ -117,15 +116,16 @@ export default function BalticBreeze() {
   });
   const T = STR[settings.ui];
 
-  // user (auth/unlocked) via module
-  const [user, setUser] = useState(() => loadUser() || DEFAULT_USER);
+  // user (auth/unlocked)
+  const [user, setUser] = useState(() => loadUser());
   useEffect(() => { saveUser(user); }, [user]);
 
-  // cards derived from unlocked decks
+  // cards (from storage or from unlocked decks on first run)
   const [cards, setCards] = useState(() => {
     const saved = localStorage.getItem(LSK.CARDS);
     if (saved) return JSON.parse(saved);
-    return initCardState(flattenCards(user.unlocked));
+    const initial = flattenCards(user.unlocked || []);
+    return initCardState(initial);
   });
 
   // profile & history
@@ -153,10 +153,10 @@ export default function BalticBreeze() {
       const newStreak = profile.lastDay === yk ? (profile.streak + 1) : (profile.lastDay ? 0 : 0);
       setProfile((p) => ({ ...p, lastDay: today, streak: newStreak }));
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // migration: old settings.packs -> user.unlocked once
+  // migration: legacy packs -> user.unlocked (one-time)
   useEffect(() => {
     const legacy = JSON.parse(localStorage.getItem("bb_settings_v2") || "null");
     if (legacy?.packs?.length) {
@@ -165,12 +165,23 @@ export default function BalticBreeze() {
     }
   }, []);
 
-  // review queue
+  // *** AUTO-APPEND NEW CARDS ***
+  useEffect(() => {
+    const defs = flattenCards(user.unlocked || []);
+    const have = new Set(cards.map(c => c.id));
+    const missing = defs.filter(d => !have.has(d.id));
+    if (missing.length) {
+      setCards(cs => [...cs, ...initCardState(missing)]);
+    }
+    // we purposely do not remove cards here; removal handled via Manage Packs
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user.unlocked]);
+
+  // derived
   const due = useMemo(() => cards.filter(c => c.due <= Date.now()).slice(0, 12), [cards]);
   const sample = useMemo(() => (due.length ? due[0] : cards[0]), [due, cards]);
 
   const progressData = useMemo(() => {
-    // Seed last 14 days (zeros)
     const out = []; const now = new Date();
     for (let i = 13; i >= 0; i--) {
       const d = new Date(now); d.setDate(now.getDate() - i);
@@ -204,25 +215,24 @@ export default function BalticBreeze() {
   const dailyCount = history.byDay[today]?.done || 0;
   const goal = settings.dailyGoal;
   const goalPct = clamp(Math.round((dailyCount / goal) * 100), 0, 100);
-  const achievements = computeAchievements({ profile, history, user });
+  const achievementIds = computeAchievements({ profile, history, user });
 
-  // --- Packs management on user.unlocked ---
+  // --- Packs management ---
   const [packsOpen, setPacksOpen] = useState(false);
-  function unlockDeck(pid) {
-    if ((user.unlocked || []).includes(pid)) return;
-    const deck = ALL_DECKS.find(p => p.id === pid); if (!deck) return;
-    const newCards = initCardState(deck.cards.filter(pc => !cards.some(c => c.id === pc.id)));
-    setCards(cs => [...cs, ...newCards]);
-    setUser(u => unlockModuleFn(u, pid));
+  function handleUnlock(pid) {
+    setUser(u => unlockModule(u, pid));
   }
-  function removeDeck(pid) {
-    if (!(user.unlocked || []).includes(pid) || pid === "core-a1") return; // keep core
-    const keepIds = new Set(ALL_DECKS.filter(p => p.id === pid ? false : (user.unlocked || []).includes(p.id)).flatMap(p => p.cards.map(c => c.id)));
-    setCards(cs => cs.filter(c => keepIds.has(c.id)));
-    setUser(u => removeModuleFn(u, pid));
+  function handleRemove(pid) {
+    setUser(u => {
+      const next = removeModule(u, pid);
+      // prune cards from removed deck(s)
+      const keep = new Set(flattenCards(next.unlocked || []).map(c => c.id));
+      setCards(cs => cs.filter(c => keep.has(c.id)));
+      return next;
+    });
   }
 
-  // --- UI bits ---
+  // --- UI components ---
   const Header = () => (
     <div className="flex items-center justify-between">
       <div>
@@ -234,24 +244,24 @@ export default function BalticBreeze() {
     </div>
   );
 
+  const Stat = ({ icon, label, value }) => (
+    <div className="flex items-center gap-2">
+      {icon}
+      <div className={`text-sm opacity-80 ${runicClass}`}>{label}</div>
+      <div className={`font-semibold ml-auto ${runicClass}`}>{value}</div>
+    </div>
+  );
+
   const HUD = () => (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
       <Card className={`${cardBg}`}><CardContent className="p-3"><Stat icon={<Flame className="w-4 h-4" />} label={STR[settings.ui].streak} value={`${profile.streak}🔥`} /></CardContent></Card>
-      <Card className={`${cardBg}`}><CardContent className="p-3 flex flex-col gap-2"><Stat icon={<Crown className="w-4 h-4" />} label={STR[settings.ui].level} value={level} /><Progress value={(profile.xp % 100)}/> </CardContent></Card>
+      <Card className={`${cardBg}`}><CardContent className="p-3 flex flex-col gap-2"><Stat icon={<Crown className="w-4 h-4" />} label={STR[settings.ui].level} value={level} /><Progress value={(profile.xp % 100)} /> </CardContent></Card>
       <Card className={`${cardBg}`}>
         <CardContent className="p-3 flex flex-col gap-2">
           <Stat icon={<Trophy className="w-4 h-4" />} label={STR[settings.ui].dailyGoal} value={`${dailyCount}/${goal}`} />
           <Progress value={goalPct} />
         </CardContent>
       </Card>
-    </div>
-  );
-
-  const Stat = ({ icon, label, value }) => (
-    <div className="flex items-center gap-2">
-      {icon}
-      <div className={`text-sm opacity-80 ${runicClass}`}>{label}</div>
-      <div className={`font-semibold ml-auto ${runicClass}`}>{value}</div>
     </div>
   );
 
@@ -426,9 +436,13 @@ export default function BalticBreeze() {
           <div className="text-sm opacity-80 mb-2">14-day activity</div>
           <div className="h-48">
             <ResponsiveContainer width="100%" height="100%">
-              <Suspense fallback={<div className="h-48 opacity-60 text-sm flex items-center justify-center">Loading chart…</div>}>
-                <ProgressChart data={progressData} />
-              </Suspense>
+              <LineChart data={progressData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="day" />
+                <YAxis allowDecimals={false} />
+                <Tooltip />
+                <Line type="monotone" dataKey="count" strokeWidth={2} />
+              </LineChart>
             </ResponsiveContainer>
           </div>
         </CardContent>
@@ -437,7 +451,7 @@ export default function BalticBreeze() {
         <CardContent className="p-4 flex flex-col gap-3">
           <div className="text-sm opacity-80">{STR[settings.ui].achievements}</div>
           <div className="flex flex-wrap gap-2">
-            {achievements.length ? achievements.map(id => (
+            {achievementIds.length ? achievementIds.map(id => (
               <Badge key={id} className={`px-3 py-1 gap-1 ${theme === 'forest' ? 'bg-emerald-800' : theme === 'amber' ? 'bg-amber-800' : 'bg-purple-900'}`}>
                 {ACH_DEFS.find(a => a.id === id)?.icon}<span>{ACH_DEFS.find(a => a.id === id)?.name}</span>
               </Badge>
@@ -506,10 +520,10 @@ export default function BalticBreeze() {
                   <div key={p.id} className="flex items-center justify-between border rounded p-2">
                     <div className="text-sm font-medium">{p.name}</div>
                     <div className="flex gap-2">
-                      {!((user.unlocked||[]).includes(p.id)) ? (
-                        <Button size="sm" onClick={() => unlockDeck(p.id)}>{T.add}</Button>
+                      {!(user.unlocked||[]).includes(p.id) ? (
+                        <Button size="sm" onClick={() => handleUnlock(p.id)}>{T.add}</Button>
                       ) : (
-                        <Button size="sm" variant="outline" disabled={p.id === 'core-a1'} onClick={() => removeDeck(p.id)}>Remove</Button>
+                        <Button size="sm" variant="outline" disabled={p.id === 'core-a1'} onClick={() => handleRemove(p.id)}>Remove</Button>
                       )}
                     </div>
                   </div>
@@ -527,7 +541,7 @@ export default function BalticBreeze() {
   );
 
   return (
-    <div className={`min-h-[100vh] w-full bg-gradient-to-br ${appBg} text-emerald-50 p-4 md:p-8`}> 
+    <div className={`min-h-[100vh] w-full bg-gradient-to-br ${appBg} text-emerald-50 p-4 md:p-8`}>
       <div className="max-w-5xl mx-auto flex flex-col gap-4">
         <Header />
         <HUD />
@@ -553,7 +567,7 @@ export default function BalticBreeze() {
         {/* Settings are purposefully away from core study flow */}
         <SettingsPanel />
 
-        <div className="text-center text-xs opacity-60 mt-4">v0.3 — modular imports, no coins, settings panel. Local save only.</div>
+        <div className="text-center text-xs opacity-60 mt-4">v0.3 — modular, auto-append new cards, no coins. Local save only.</div>
       </div>
     </div>
   );

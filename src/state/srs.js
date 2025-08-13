@@ -16,8 +16,7 @@ export function levenshtein(a = '', b = '') {
   return dp[m][n];
 }
 
-export const fuzzyCorrect = (user, answer) =>
-  levenshtein(user.trim(), answer.trim()) <= Math.max(1, Math.round(answer.trim().length * 0.2));
+export const fuzzyCorrect = (user, answer) => levenshtein(user.trim(), answer.trim()) <= Math.max(1, Math.round(answer.trim().length * 0.2));
 
 export function srsUpdateHelper(card, quality) {
   const next = { ...card };
@@ -25,9 +24,7 @@ export function srsUpdateHelper(card, quality) {
   if (q < 3) { next.reps = 0; next.interval = 0; }
   else {
     next.ef = Math.max(1.3, next.ef + (0.1 - (5 - q) * (0.08 + (5 - q) * 0.02)));
-    if (next.reps === 0) next.interval = 1;
-    else if (next.reps === 1) next.interval = 3;
-    else next.interval = Math.round(next.interval * next.ef);
+    if (next.reps === 0) next.interval = 1; else if (next.reps === 1) next.interval = 3; else next.interval = Math.round(next.interval * next.ef);
     next.reps += 1;
   }
   next.due = Date.now() + (next.interval * 24) * 3600 * 1000;

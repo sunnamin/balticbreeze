@@ -1,9 +1,15 @@
+/**
+ * Very light user module (auth placeholder + unlocked modules).
+ * Today: anonymous user persisted to localStorage.
+ * Future: swap to services/storage/supabase.js without changing callers.
+ */
+
 const USER_LSK = 'bb_user_v1';
 
 export const DEFAULT_USER = {
   id: 'anon',
   displayName: 'Guest',
-  unlocked: ['core-a1', 'food-a1'],
+  unlocked: ['core-a1', 'food-a1'], // A1 defaults
 };
 
 export function loadUser() {
